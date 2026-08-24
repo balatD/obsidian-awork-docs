@@ -12,7 +12,8 @@
 		"typecheck": "tsc --noEmit",
 		"roundtrip": "tsx scripts/roundtrip.ts",
 		"connect": "tsx scripts/connect.ts",
-		"dry-run": "tsx scripts/dry-run.ts"
+		"dry-run": "tsx scripts/dry-run.ts",
+		"version": "node version-bump.mjs && git add manifest.json versions.json"
 	},
 	"keywords": [
 		"obsidian",
@@ -28,5 +29,12 @@
 		"tsx": "^4.19.2",
 		"typescript": "^5.7.2",
 		"vitest": "^2.1.8"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/balatD/obsidian-awork-docs.git"
+	},
+	"bugs": {
+		"url": "https://github.com/balatD/obsidian-awork-docs/issues"
 	}
 }

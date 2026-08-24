@@ -1,0 +1,53 @@
+name: Release
+
+# Obsidian requires the tag to equal the manifest version exactly, with no "v"
+# prefix — the community plugin index matches on it. Tag like `0.1.0`.
+on:
+  push:
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Refuse to ship a tag that disagrees with the manifest
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          MANIFEST=$(node -p "require('./manifest.json').version")
+          if [ "$TAG" != "$MANIFEST" ]; then
+            echo "Tag $TAG does not match manifest.json version $MANIFEST." >&2
+            echo "Obsidian resolves releases by this exact match, so it would install nothing." >&2
+            exit 1
+          fi
+          node -e "
+            const v = require('./versions.json'), m = require('./manifest.json');
+            if (v[m.version] !== m.minAppVersion) {
+              console.error('versions.json is missing ' + m.version + ' -> ' + m.minAppVersion + '. Run npm version.');
+              process.exit(1);
+            }
+          "
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Publish the release with the files Obsidian installs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          ASSETS="main.js manifest.json"
+          [ -f styles.css ] && ASSETS="$ASSETS styles.css"
+          gh release create "$TAG" $ASSETS \
+            --title "$TAG" \
+            --generate-notes

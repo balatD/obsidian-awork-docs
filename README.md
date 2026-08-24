@@ -148,6 +148,25 @@ the live workspace into an in-memory vault, writing nothing to disk or to awork.
 Use a throwaway document space for `--write`. `AWORK_TOKEN=<api key>` works
 instead of `connect` if you have a workspace API key.
 
+### Releasing
+
+Obsidian installs plugins from GitHub *release assets*, and the community index
+matches the release tag against `manifest.json` exactly — no `v` prefix.
+
+```sh
+npm version patch          # bumps package.json, manifest.json and versions.json
+git push && git push --tags
+```
+
+The tag push triggers `.github/workflows/release.yml`, which refuses to publish
+if the tag and manifest disagree or `versions.json` is missing the entry, then
+runs the checks and attaches `main.js`, `manifest.json` (and `styles.css` when
+one exists) to the release.
+
+Until this is in the community directory, install it with
+[BRAT](https://github.com/TfTHacker/obsidian42-brat): *Add beta plugin* →
+`balatD/obsidian-awork-docs`.
+
 ### Layout
 
 ```
