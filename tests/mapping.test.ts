@@ -36,14 +36,39 @@ describe('buildPathMap', () => {
 		expect(paths.get('a')).toBe('awork/Engineering/Runbook.md');
 	});
 
-	it('nests children below their parent as a folder note', () => {
+	it('keeps a parent inside the folder holding its children', () => {
 		const paths = buildPathMap(
 			[doc({ id: 'p', name: 'Handbook' }), doc({ id: 'c', name: 'Onboarding', parentId: 'p' })],
 			spaces,
 			defaultMappingOptions,
 		);
+		expect(paths.get('p')).toBe('awork/Engineering/Handbook/Handbook.md');
+		expect(paths.get('c')).toBe('awork/Engineering/Handbook/Onboarding.md');
+	});
+
+	it('puts a parent beside its folder in the sibling style', () => {
+		const paths = buildPathMap(
+			[doc({ id: 'p', name: 'Handbook' }), doc({ id: 'c', name: 'Onboarding', parentId: 'p' })],
+			spaces,
+			{ ...defaultMappingOptions, nesting: 'sibling' },
+		);
 		expect(paths.get('p')).toBe('awork/Engineering/Handbook.md');
 		expect(paths.get('c')).toBe('awork/Engineering/Handbook/Onboarding.md');
+	});
+
+	it('leaves a childless document as a plain note', () => {
+		const paths = buildPathMap([doc({ id: 'a', name: 'Runbook' })], spaces, defaultMappingOptions);
+		expect(paths.get('a')).toBe('awork/Engineering/Runbook.md');
+	});
+
+	it('lets the parent win the name when a child shares it', () => {
+		const paths = buildPathMap(
+			[doc({ id: 'p', name: 'Kunden' }), doc({ id: 'c', name: 'Kunden', parentId: 'p' })],
+			spaces,
+			defaultMappingOptions,
+		);
+		expect(paths.get('p')).toBe('awork/Engineering/Kunden/Kunden.md');
+		expect(paths.get('c')).toBe('awork/Engineering/Kunden/Kunden (2).md');
 	});
 
 	it('anchors an orphan at the space root when its parent is out of scope', () => {

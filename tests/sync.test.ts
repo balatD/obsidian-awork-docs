@@ -108,7 +108,7 @@ describe('two-way sync', () => {
 		expect(await vault.read('awork/Engineering/Fresh idea.md')).toContain(`awork-id: ${created!.id}`);
 	});
 
-	it('nests a note under its folder note as a child document', async () => {
+	it('nests a note under a childless document that has no folder yet', async () => {
 		const parent = remote.seed({ id: 'doc-parent', name: 'Handbook', spaceId: SPACE_ID }, 'parent');
 		await sync();
 		vault.edit('awork/Engineering/Handbook/Onboarding.md', 'child body');
@@ -399,5 +399,99 @@ describe('scan caching', () => {
 		await sync();
 
 		expect(reads).toEqual(['awork/Engineering/A.md']);
+	});
+});
+
+describe('documents containing documents', () => {
+	let clock: TestClock;
+	let remote: FakeRemote;
+	let vault: InMemoryVault;
+	let state: SyncState;
+
+	beforeEach(() => {
+		clock = new TestClock();
+		remote = new FakeRemote(clock);
+		vault = new InMemoryVault(clock);
+		state = emptyState();
+		remote.addSpace(SPACE_ID, 'Engineering');
+	});
+
+	const sync = async (nesting: 'inside' | 'sibling' = 'inside') =>
+		runSync({
+			remote,
+			vault,
+			mapping: { ...mapping, nesting },
+			selection: { spaceIds: [SPACE_ID], includePrivate: true, includeShared: true },
+			deletionPolicy: 'ignore',
+			frontmatter: 'minimal',
+			loadState: () => state,
+			saveState: async (next) => {
+				state = next;
+			},
+			now: () => clock.now(),
+		});
+
+	it('puts a parent and its children in one folder', async () => {
+		remote.seed({ id: 'p', name: 'Kunden', spaceId: SPACE_ID }, 'parent body');
+		remote.seed({ id: 'c', name: 'BEAS', spaceId: SPACE_ID, parentId: 'p' }, 'child body');
+
+		await sync();
+
+		expect(await vault.exists('awork/Engineering/Kunden/Kunden.md')).toBe(true);
+		expect(await vault.exists('awork/Engineering/Kunden/BEAS.md')).toBe(true);
+	});
+
+	it('does not make a folder note its own parent', async () => {
+		remote.seed({ id: 'p', name: 'Kunden', spaceId: SPACE_ID }, 'parent body');
+		remote.seed({ id: 'c', name: 'BEAS', spaceId: SPACE_ID, parentId: 'p' }, 'child body');
+		await sync();
+
+		// Rename the parent locally; its own parent must stay null, not itself.
+		clock.advance(60_000);
+		await vault.rename('awork/Engineering/Kunden/Kunden.md', 'awork/Engineering/Kunden/Clients.md');
+		await sync();
+
+		expect(remote.docs.get('p')?.parentId).toBeNull();
+		expect(remote.docs.get('p')?.name).toBe('Clients');
+	});
+
+	it('adopts a note dropped into a parent folder as a child document', async () => {
+		remote.seed({ id: 'p', name: 'Kunden', spaceId: SPACE_ID }, 'parent body');
+		remote.seed({ id: 'c', name: 'BEAS', spaceId: SPACE_ID, parentId: 'p' }, 'child body');
+		await sync();
+
+		vault.edit('awork/Engineering/Kunden/Neuer Kunde.md', 'fresh');
+		await sync();
+
+		const created = [...remote.docs.values()].find((doc) => doc.name === 'Neuer Kunde');
+		expect(created?.parentId).toBe('p');
+	});
+
+	it('moves the parent note when the layout style changes', async () => {
+		remote.seed({ id: 'p', name: 'Kunden', spaceId: SPACE_ID }, 'parent body');
+		remote.seed({ id: 'c', name: 'BEAS', spaceId: SPACE_ID, parentId: 'p' }, 'child body');
+		await sync('inside');
+
+		await sync('sibling');
+
+		expect(await vault.exists('awork/Engineering/Kunden.md')).toBe(true);
+		expect(await vault.exists('awork/Engineering/Kunden/Kunden.md')).toBe(false);
+		expect(await vault.exists('awork/Engineering/Kunden/BEAS.md')).toBe(true);
+		// A vault-side reshuffle must not touch awork.
+		expect(remote.docs.get('p')?.name).toBe('Kunden');
+		expect(remote.docs.get('c')?.parentId).toBe('p');
+	});
+
+	it('relocates a parent when it gains its first child', async () => {
+		remote.seed({ id: 'p', name: 'Kunden', spaceId: SPACE_ID }, 'parent body');
+		await sync();
+		expect(await vault.exists('awork/Engineering/Kunden.md')).toBe(true);
+
+		clock.advance(60_000);
+		remote.seed({ id: 'c', name: 'BEAS', spaceId: SPACE_ID, parentId: 'p' }, 'child body');
+		await sync();
+
+		expect(await vault.exists('awork/Engineering/Kunden/Kunden.md')).toBe(true);
+		expect(await vault.exists('awork/Engineering/Kunden.md')).toBe(false);
 	});
 });

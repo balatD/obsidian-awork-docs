@@ -9,16 +9,28 @@ import type { DocScope, RemoteDoc, RemoteSpace } from './ports';
  * the conventional Obsidian folder-note layout.
  */
 
+/**
+ * Where a document that has children keeps its own note.
+ *
+ * `inside` puts it in the folder it owns (`Kunden/Kunden.md`) — the convention
+ * the Folder Notes community plugin uses, and the only one that keeps a parent
+ * next to its children, since Obsidian sorts every folder above every file.
+ * `sibling` puts it alongside (`Kunden.md` next to `Kunden/`).
+ */
+export type NestingStyle = 'inside' | 'sibling';
+
 export interface MappingOptions {
 	syncRoot: string;
 	privateFolder: string;
 	sharedFolder: string;
+	nesting: NestingStyle;
 }
 
 export const defaultMappingOptions: MappingOptions = {
 	syncRoot: 'awork',
 	privateFolder: 'Private',
 	sharedFolder: 'Shared with me',
+	nesting: 'inside',
 };
 
 const ILLEGAL_CHARACTERS = /[\\/:*?"<>|#^[\]]/g;
@@ -81,22 +93,45 @@ export function buildPathMap(
 		return chain.length === 0 ? base : `${base}/${chain.join('/')}`;
 	};
 
-	// Sort by id so collision suffixes stay stable between runs.
-	const ordered = [...docs].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+	const hasChildren = new Set(docs.map((doc) => doc.parentId).filter((id): id is string => id !== null));
+
+	// Shallowest first so a parent claims its own name before any child can, then
+	// by id so collision suffixes stay stable between runs.
+	const ordered = [...docs].sort(
+		(a, b) => depthOf(a, byId) - depthOf(b, byId) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+	);
 	const taken = new Set<string>();
 	const paths = new Map<string, string>();
 
 	for (const doc of ordered) {
 		const folder = folderOf(doc);
 		const stem = sanitizeSegment(doc.name);
-		let candidate = `${folder}/${stem}.md`;
+		// A document with children owns a folder; where its own note goes inside
+		// that folder is the caller's choice.
+		const home = options.nesting === 'inside' && hasChildren.has(doc.id) ? `${folder}/${stem}` : folder;
+
+		let candidate = `${home}/${stem}.md`;
 		for (let suffix = 2; taken.has(candidate.toLowerCase()); suffix++) {
-			candidate = `${folder}/${stem} (${suffix}).md`;
+			candidate = `${home}/${stem} (${suffix}).md`;
 		}
 		taken.add(candidate.toLowerCase());
 		paths.set(doc.id, candidate);
 	}
 	return paths;
+}
+
+function depthOf(doc: RemoteDoc, byId: Map<string, RemoteDoc>): number {
+	let depth = 0;
+	const seen = new Set<string>([doc.id]);
+	let parentId = doc.parentId;
+	while (parentId !== null && !seen.has(parentId)) {
+		const parent = byId.get(parentId);
+		if (!parent) break;
+		seen.add(parent.id);
+		depth++;
+		parentId = parent.parentId;
+	}
+	return depth;
 }
 
 /** `awork/Space/Parent/Child.md` → `Child`. */

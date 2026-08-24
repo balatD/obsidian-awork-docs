@@ -17,10 +17,30 @@ layer, no lossy round-trip through a rich-text model on this side.
 
 Project docs are deliberately out of scope.
 
-Nesting follows awork's `parentId`: a document with children becomes both
-`Parent.md` and a `Parent/` folder next to it — the usual Obsidian folder-note
-layout. Move a note into a folder note's folder and it becomes that document's
-child in awork.
+### Documents inside documents
+
+awork lets a document hold child documents; Obsidian has only folders. Since
+Obsidian sorts every folder above every file, a parent placed *beside* its
+folder ends up separated from its own children — so by default the parent goes
+**inside** the folder it owns:
+
+```
+awork/Private/Kunden/
+    Kunden.md        ← the parent document itself
+    BEAS.md          ← its children
+    Holzland - Formulare.md
+```
+
+This is the convention the [Folder Notes](https://github.com/LostPaul/obsidian-folder-notes)
+plugin recognises, so clicking the folder opens the parent. Settings →
+*Documents that contain other documents* switches to `Kunden.md` beside
+`Kunden/` if you prefer.
+
+Either way, **dropping a note into a folder makes it a child of that folder's
+document** — both conventions are recognised on the way in, whichever is
+configured, because a document with no children yet has no folder to sit in. A
+document that gains its first child moves into its folder on the next sync; one
+that loses its last child moves back out.
 
 ## Properties in your notes
 

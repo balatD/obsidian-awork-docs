@@ -1,5 +1,5 @@
 import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
-import type { MappingOptions } from './core/mapping';
+import type { MappingOptions, NestingStyle } from './core/mapping';
 import type { DeletionPolicy } from './core/plan';
 import type { DocSelection, RemoteSpace } from './core/ports';
 import { emptyState, type SyncState } from './core/state';
@@ -16,6 +16,8 @@ export interface AworkSyncSettings {
 	includePrivate: boolean;
 	includeShared: boolean;
 	deletionPolicy: DeletionPolicy;
+	/** Where a document with children keeps its own note. */
+	nesting: NestingStyle;
 	/** How much awork bookkeeping to leave in each note's properties. */
 	frontmatter: FrontmatterMode;
 	/** Documents worked on at once. See the note in the settings tab. */
@@ -35,6 +37,7 @@ export const DEFAULT_SETTINGS: AworkSyncSettings = {
 	includePrivate: true,
 	includeShared: true,
 	deletionPolicy: 'ignore',
+	nesting: 'inside',
 	frontmatter: 'minimal',
 	concurrency: DEFAULT_CONCURRENCY,
 	intervalMinutes: 5,
@@ -48,6 +51,7 @@ export function mappingFrom(settings: AworkSyncSettings): MappingOptions {
 		syncRoot: settings.syncRoot.replace(/^\/+|\/+$/g, '') || 'awork',
 		privateFolder: settings.privateFolder || 'Private',
 		sharedFolder: settings.sharedFolder || 'Shared with me',
+		nesting: settings.nesting,
 	};
 }
 
@@ -210,6 +214,25 @@ export class AworkSyncSettingTab extends PluginSettingTab {
 				await this.plugin.saveSettings();
 			}),
 		);
+
+		new Setting(containerEl)
+			.setName('Documents that contain other documents')
+			.setDesc(
+				'awork lets a document hold child documents. Obsidian sorts every folder above ' +
+					'every file, so keeping the parent inside its own folder is the only way it stays ' +
+					'next to its children. Works with the Folder Notes plugin.',
+			)
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption('inside', 'Inside its folder — Kunden/Kunden.md')
+					.addOption('sibling', 'Next to its folder — Kunden.md')
+					.setValue(this.plugin.settings.nesting)
+					.onChange(async (value) => {
+						this.plugin.settings.nesting = value as NestingStyle;
+						await this.plugin.saveSettings();
+						new Notice('Parent notes move to their new place on the next sync.');
+					}),
+			);
 	}
 
 	private renderBehaviour(containerEl: HTMLElement): void {

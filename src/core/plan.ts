@@ -1,4 +1,11 @@
-import { buildPathMap, isUnder, nameFromPath, sanitizeSegment, type MappingOptions } from './mapping';
+import {
+	buildPathMap,
+	isUnder,
+	nameFromPath,
+	parentFolder,
+	sanitizeSegment,
+	type MappingOptions,
+} from './mapping';
 import type { DocScope, RemoteDoc, RemoteSpace } from './ports';
 import type { SyncState } from './state';
 
@@ -177,7 +184,7 @@ function adopt(doc: RemoteDoc, note: LocalNote, desiredPath: string): SyncAction
 }
 
 function renameFrom(doc: RemoteDoc, note: LocalNote, locator: LocationResolver): SyncAction {
-	const location = locator.locate(note.path);
+	const location = locator.locate(note.path, doc.id);
 	return {
 		kind: 'push-rename',
 		doc,
@@ -234,7 +241,12 @@ export class LocationResolver {
 		}
 	}
 
-	locate(path: string): DocLocation | null {
+	/**
+	 * @param selfId the document this path belongs to, when it already has one.
+	 *   A folder note lives inside the folder it owns, so without this it would
+	 *   resolve to itself as its own parent.
+	 */
+	locate(path: string, selfId?: string): DocLocation | null {
 		if (!isUnder(path, this.mapping.syncRoot)) return null;
 		const relative = path.slice(this.mapping.syncRoot.length + 1);
 		const segments = relative.split('/');
@@ -244,12 +256,39 @@ export class LocationResolver {
 		const scope = this.scopeOf(top);
 		if (scope === null) return null;
 
-		const folder = path.slice(0, path.lastIndexOf('/'));
-		const parentId = this.docIdByPath.get(`${folder}.md`.toLowerCase()) ?? null;
+		let folder = parentFolder(path);
+		let parentId = this.ownerOf(folder);
+		if (parentId !== null && parentId === selfId) {
+			folder = parentFolder(folder);
+			parentId = this.ownerOf(folder);
+		}
+
 		const spaceId = scope === 'space' ? (this.spaceIdByFolder.get(top.toLowerCase()) ?? null) : null;
 		if (scope === 'space' && spaceId === null) return null;
 
 		return { scope, spaceId, parentId };
+	}
+
+	/**
+	 * The document whose own note owns `folder`, if any.
+	 *
+	 * Both conventions are accepted no matter which one is configured: a document
+	 * with no children yet has no folder to sit in, so the first child dropped
+	 * into a new folder beside it must still find its parent. Only the paths this
+	 * resolver *emits* follow the configured style.
+	 */
+	private ownerOf(folder: string): string | null {
+		if (!isUnder(folder, this.mapping.syncRoot)) return null;
+		const basename = folder.slice(folder.lastIndexOf('/') + 1);
+		const candidates =
+			this.mapping.nesting === 'inside'
+				? [`${folder}/${basename}.md`, `${folder}.md`]
+				: [`${folder}.md`, `${folder}/${basename}.md`];
+		for (const candidate of candidates) {
+			const id = this.docIdByPath.get(candidate.toLowerCase());
+			if (id !== undefined) return id;
+		}
+		return null;
 	}
 
 	private scopeOf(topFolder: string): DocScope | null {
