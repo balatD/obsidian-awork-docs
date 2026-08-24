@@ -18,6 +18,10 @@ export interface DocRecord {
 	/** SHA-256 of the frontmatter-stripped body — the local change detector. */
 	bodyHash: string;
 	lastSyncedAt: string;
+	/** fileId -> vault path of the downloaded attachment. */
+	attachments?: Record<string, string>;
+	/** fileId -> the awork URL the embed originally used, restored on push. */
+	attachmentUrls?: Record<string, string>;
 }
 
 /**

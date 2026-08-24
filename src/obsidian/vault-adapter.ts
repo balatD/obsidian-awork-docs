@@ -43,6 +43,17 @@ export class ObsidianVault implements LocalVault {
 		await this.app.vault.create(normalized, content);
 	}
 
+	async writeBinary(path: string, bytes: ArrayBuffer): Promise<void> {
+		const normalized = normalizePath(path);
+		const existing = this.app.vault.getAbstractFileByPath(normalized);
+		if (existing instanceof TFile) {
+			await this.app.vault.modifyBinary(existing, bytes);
+			return;
+		}
+		await this.ensureFolder(parentOf(normalized));
+		await this.app.vault.createBinary(normalized, bytes);
+	}
+
 	async rename(from: string, to: string): Promise<void> {
 		const file = this.requireFile(from);
 		const target = normalizePath(to);

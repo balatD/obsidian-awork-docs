@@ -21,6 +21,7 @@ export class ObsidianTransport implements HttpTransport {
 			status: response.status,
 			headers: lowercaseHeaders(response.headers ?? {}),
 			text: response.text ?? '',
+			bytes: response.arrayBuffer,
 		};
 	}
 }

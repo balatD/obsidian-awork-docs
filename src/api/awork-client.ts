@@ -11,6 +11,7 @@ import { stripAworkExportHeader } from '../core/markdown';
 import type {
 	CreateRemoteDoc,
 	DocSelection,
+	DownloadedFile,
 	RemoteDoc,
 	RemoteDocs,
 	RemoteSpace,
@@ -142,6 +143,20 @@ export class AworkClient implements RemoteDocs {
 
 	async trash(id: string): Promise<void> {
 		await this.request({ method: 'DELETE', url: `${this.baseUrl}/documents/${id}` });
+	}
+
+	async downloadFile(fileId: string): Promise<DownloadedFile> {
+		const response = await this.request({
+			method: 'GET',
+			url: `${this.baseUrl}/files/${fileId}/download`,
+			headers: { Accept: '*/*' },
+		});
+		if (!response.bytes) throw new Error(`No content returned for file ${fileId}`);
+		return {
+			bytes: response.bytes,
+			contentType: response.headers['content-type'],
+			contentDisposition: response.headers['content-disposition'],
+		};
 	}
 
 	private async listScoped(url: string, scope: DocScope): Promise<RemoteDoc[]> {

@@ -4,6 +4,7 @@ import type { DeletionPolicy } from './core/plan';
 import type { DocSelection, RemoteSpace } from './core/ports';
 import { emptyState, type SyncState } from './core/state';
 import type { FrontmatterMode } from './core/sync-engine';
+import type { TableConversion } from './core/tables';
 import { DEFAULT_CONCURRENCY } from './api/http';
 import { emptyAuth, type StoredAuth } from './auth/token-store';
 import type AworkSyncPlugin from './main';
@@ -20,6 +21,9 @@ export interface AworkSyncSettings {
 	nesting: NestingStyle;
 	/** How much awork bookkeeping to leave in each note's properties. */
 	frontmatter: FrontmatterMode;
+	tables: TableConversion;
+	/** Folder for downloaded images; empty leaves images as awork links. */
+	attachmentFolder: string;
 	/** Documents worked on at once. See the note in the settings tab. */
 	concurrency: number;
 	/** Minutes between automatic syncs; 0 disables the timer. */
@@ -39,6 +43,8 @@ export const DEFAULT_SETTINGS: AworkSyncSettings = {
 	deletionPolicy: 'ignore',
 	nesting: 'inside',
 	frontmatter: 'minimal',
+	tables: 'header',
+	attachmentFolder: 'awork/_attachments',
 	concurrency: DEFAULT_CONCURRENCY,
 	intervalMinutes: 5,
 	syncOnStartup: false,
@@ -281,6 +287,40 @@ export class AworkSyncSettingTab extends PluginSettingTab {
 				await this.plugin.saveSettings();
 			}),
 		);
+
+		new Setting(containerEl)
+			.setName('Tables')
+			.setDesc(
+				'awork falls back to raw HTML for tables its markdown cannot express. Simple ones ' +
+					'convert back to editable Markdown; tables with merged cells are always left as ' +
+					'HTML. Markdown has no headerless table, so those need their first row promoted ' +
+					'— which changes the document in awork if you later edit the note.',
+			)
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption('header', 'Convert when the table already has a header')
+					.addOption('promote', 'Also promote the first row of headerless tables')
+					.addOption('off', 'Leave every table as awork sent it')
+					.setValue(this.plugin.settings.tables)
+					.onChange(async (value) => {
+						this.plugin.settings.tables = value as TableConversion;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName('Image folder')
+			.setDesc(
+				'Images in awork documents are behind an authenticated URL that Obsidian cannot ' +
+					'load, so they are downloaded here and the embeds rewritten. Pushing a note puts ' +
+					'awork\'s own references back untouched. Leave empty to keep the original links.',
+			)
+			.addText((text) =>
+				text.setValue(this.plugin.settings.attachmentFolder).onChange(async (value) => {
+					this.plugin.settings.attachmentFolder = value.trim();
+					await this.plugin.saveSettings();
+				}),
+			);
 
 		new Setting(containerEl)
 			.setName('Documents at once')

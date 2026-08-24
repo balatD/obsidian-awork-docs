@@ -12,6 +12,12 @@ export class FetchTransport implements HttpTransport {
 		response.headers.forEach((value, key) => {
 			headers[key.toLowerCase()] = value;
 		});
-		return { status: response.status, headers, text: await response.text() };
+		const bytes = await response.arrayBuffer();
+		return {
+			status: response.status,
+			headers,
+			text: new TextDecoder().decode(bytes),
+			bytes,
+		};
 	}
 }

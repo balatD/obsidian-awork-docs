@@ -51,6 +51,14 @@ export interface RemoteDocs {
 	update(id: string, patch: RenameRemoteDoc): Promise<RemoteDoc>;
 	/** awork soft-deletes: the document lands in the workspace trash. */
 	trash(id: string): Promise<void>;
+	/** Fetches an embedded file. The endpoint requires the bearer token. */
+	downloadFile(fileId: string): Promise<DownloadedFile>;
+}
+
+export interface DownloadedFile {
+	bytes: ArrayBuffer;
+	contentType: string | undefined;
+	contentDisposition: string | undefined;
 }
 
 export interface LocalFile {
@@ -66,6 +74,7 @@ export interface LocalVault {
 	/** Same content as `read`, but allowed to come from a cache. Used by the scan. */
 	readCached(path: string): Promise<string>;
 	write(path: string, content: string): Promise<void>;
+	writeBinary(path: string, bytes: ArrayBuffer): Promise<void>;
 	rename(from: string, to: string): Promise<void>;
 	/** Moves to the system/Obsidian trash rather than unlinking. */
 	trash(path: string): Promise<void>;

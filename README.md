@@ -70,6 +70,42 @@ removes any leftover export header from notes synced by an older version.
 To hide properties without changing what is stored, use Obsidian's own
 Settings → Editor → **Properties in document** → *Hidden*.
 
+## Tables and images
+
+**Tables.** awork writes most tables as Markdown pipe tables, but falls back to
+raw `<table>` HTML whenever its editor holds something Markdown cannot express —
+usually just a resized column. Obsidian renders that HTML but you cannot edit it
+as a table, so tables whose only reason for being HTML was presentational are
+converted back to pipe tables. Anything with a **merged cell, block content in a
+cell, or markup the converter does not understand is left as HTML**, because a
+lossy conversion would silently drop data. Converted tables push back cleanly —
+awork parses pipe tables into real tables again, losing only the column width.
+
+Markdown has no headerless table, so a table that never marked a header row can
+only be converted by promoting its first row. That is a real change to the
+document if the note is later pushed, so it is opt-in: Settings → *Tables* →
+*Also promote the first row of headerless tables*.
+
+**Images.** awork embeds images as workspace-relative URLs behind its API:
+
+```
+![](</api/v1/files/82e99766-…/download?crop=false&width=1024&…>)
+```
+
+Obsidian can render neither half of that — the path is relative to the API host,
+and the host requires a bearer token an `<img>` tag cannot send. So images are
+downloaded into `awork/_attachments` (configurable, empty disables it) and the
+embeds rewritten to `![[82e99766-screenshot.jpg]]`, resolved by name so moving
+the note or the folder cannot break them.
+
+The original reference is kept in the sync state and **restored verbatim on
+push**, so awork keeps its own file record and editing a note's text never
+disturbs its images. A file that fails to download keeps its awork link rather
+than becoming a broken local one, and the next sync retries.
+
+Images added *in Obsidian* are not uploaded to awork yet — they stay as
+wikilinks awork cannot resolve.
+
 ## How it decides what changed
 
 - **Identity is the id, never the path.** Renaming or moving on either side is a
@@ -215,8 +251,8 @@ alongside the plan, which distinguishes rate limiting from plain latency.
   minutes, plus a manual command and ribbon icon).
 - **Obsidian-specific syntax** — `[[wikilinks]]`, `![[embeds]]`, callouts,
   Dataview queries — is pushed as literal text and will not render in awork.
-- **Attachments are not synced yet.** Images in awork documents stay as
-  authenticated awork URLs and will not render in Obsidian.
+- **Images added in Obsidian are not uploaded to awork.** The other direction
+  works; see Tables and images above.
 - **The `full_access` scope is the only meaningful one awork offers**, so the
   token can reach more than documents.
 - Rate limits (50/s, 1000/min) are **workspace-wide and shared with every other

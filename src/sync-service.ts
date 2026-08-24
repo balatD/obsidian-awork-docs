@@ -9,6 +9,7 @@ import {
 	type SyncReport,
 } from './core/sync-engine';
 import type { ScanEntry, SyncState } from './core/state';
+import type { TableConversion } from './core/tables';
 
 /**
  * One sync pass, start to finish: scan the vault, ask awork what it has, diff,
@@ -23,6 +24,8 @@ export interface SyncDeps {
 	selection: DocSelection;
 	deletionPolicy: DeletionPolicy;
 	frontmatter: FrontmatterMode;
+	tables: TableConversion;
+	attachmentFolder: string;
 	/** Documents worked on at once. Defaults to the engine's own limit. */
 	concurrency?: number;
 	loadState: () => SyncState;
@@ -59,6 +62,8 @@ export async function runSync(deps: SyncDeps): Promise<SyncReport> {
 		state,
 		mapping: deps.mapping,
 		frontmatter: deps.frontmatter,
+		tables: deps.tables,
+		attachmentFolder: deps.attachmentFolder,
 		concurrency: deps.concurrency,
 		now,
 		onProgress: deps.onProgress,
@@ -121,6 +126,7 @@ export function describeReport(report: SyncReport): string {
 	if (report.moved) parts.push(`${report.moved} moved`);
 	if (report.trashed) parts.push(`${report.trashed} trashed`);
 	if (report.conflicts) parts.push(`${report.conflicts} conflicts`);
+	if (report.attachments) parts.push(`${report.attachments} images`);
 	if (report.errors.length) parts.push(`${report.errors.length} failed`);
 	if (parts.length === 0) return `Up to date (${report.unchanged} documents)`;
 	return parts.join(', ');

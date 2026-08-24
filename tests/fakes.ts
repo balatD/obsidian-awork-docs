@@ -1,6 +1,7 @@
 import type {
 	CreateRemoteDoc,
 	DocSelection,
+	DownloadedFile,
 	LocalFile,
 	LocalVault,
 	RemoteDoc,
@@ -32,6 +33,9 @@ export class FakeRemote implements RemoteDocs {
 	readonly content = new Map<string, string>();
 	readonly spaces: RemoteSpace[] = [];
 	readonly trashed: string[] = [];
+	/** fileId -> what `downloadFile` should hand back. */
+	readonly files = new Map<string, DownloadedFile>();
+	readonly downloads: string[] = [];
 	private nextId = 1;
 
 	constructor(private readonly clock: TestClock) {}
@@ -125,6 +129,13 @@ export class FakeRemote implements RemoteDocs {
 		this.trashed.push(id);
 	}
 
+	async downloadFile(fileId: string): Promise<DownloadedFile> {
+		const file = this.files.get(fileId);
+		if (!file) throw new Error(`No such file: ${fileId}`);
+		this.downloads.push(fileId);
+		return file;
+	}
+
 	private require(id: string): RemoteDoc {
 		const doc = this.docs.get(id);
 		if (!doc) throw new Error(`No such document: ${id}`);
@@ -134,6 +145,7 @@ export class FakeRemote implements RemoteDocs {
 
 export class InMemoryVault implements LocalVault {
 	readonly files = new Map<string, { content: string; mtime: number }>();
+	readonly binary = new Map<string, ArrayBuffer>();
 	readonly trashed: string[] = [];
 
 	constructor(private readonly clock: TestClock) {}
@@ -147,6 +159,7 @@ export class InMemoryVault implements LocalVault {
 		return [...this.files.entries()]
 			.filter(([path]) => path === root || path.startsWith(`${root}/`))
 			.filter(([path]) => !path.startsWith(`${root}/_conflicts`))
+			.filter(([path]) => !this.binary.has(path))
 			.map(([path, file]) => ({ path, mtime: file.mtime }));
 	}
 
@@ -162,6 +175,11 @@ export class InMemoryVault implements LocalVault {
 
 	async write(path: string, content: string): Promise<void> {
 		this.files.set(path, { content, mtime: this.clock.value });
+	}
+
+	async writeBinary(path: string, bytes: ArrayBuffer): Promise<void> {
+		this.binary.set(path, bytes);
+		this.files.set(path, { content: `<${bytes.byteLength} bytes>`, mtime: this.clock.value });
 	}
 
 	async rename(from: string, to: string): Promise<void> {

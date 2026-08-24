@@ -1,5 +1,14 @@
 import { conflictPath, nameFromPath, type MappingOptions } from './mapping';
 import { applyManagedKeys, hashBody, joinFrontmatter, normalizeBody, splitFrontmatter } from './markdown';
+import {
+	attachmentName,
+	findAworkImages,
+	localizeImages,
+	originalsByName,
+	restoreImages,
+	type AttachmentMap,
+} from './attachments';
+import { convertSimpleHtmlTables, type TableConversion } from './tables';
 import type { SyncAction, SyncPlan } from './plan';
 import type { LocalVault, RemoteDoc, RemoteDocs } from './ports';
 import { DEFAULT_CONCURRENCY } from '../api/http';
@@ -29,6 +38,9 @@ export interface ApplyContext {
 	state: SyncState;
 	mapping: MappingOptions;
 	frontmatter: FrontmatterMode;
+	tables: TableConversion;
+	/** Vault folder for downloaded images; empty disables image download. */
+	attachmentFolder: string;
 	/**
 	 * How many documents to work on at once. Each one costs at least one round
 	 * trip, so this is what turns a cold sync from minutes into seconds. Keep it
@@ -51,6 +63,7 @@ export interface SyncReport {
 	trashed: number;
 	conflicts: number;
 	unchanged: number;
+	attachments: number;
 	errors: Array<{ action: string; target: string; message: string }>;
 }
 
@@ -64,6 +77,7 @@ export async function applyPlan(plan: SyncPlan, context: ApplyContext): Promise<
 		trashed: 0,
 		conflicts: 0,
 		unchanged: plan.unchanged,
+		attachments: 0,
 		errors: [],
 	};
 
@@ -140,9 +154,16 @@ async function applyAction(
 	switch (action.kind) {
 		case 'pull-create':
 		case 'pull-update': {
-			const markdown = await remote.getMarkdown(action.doc.id);
+			const raw = await remote.getMarkdown(action.doc.id);
+			const withTables = convertSimpleHtmlTables(raw, context.tables);
+			const { markdown, attachments, urls } = await localize(withTables, action.path, context, report);
+
 			await writeNote(vault, action.path, action.doc, markdown, frontmatterMode);
-			state.docs[action.doc.id] = await recordFor(action.doc, action.path, markdown, now());
+			state.docs[action.doc.id] = {
+				...(await recordFor(action.doc, action.path, markdown, now())),
+				attachments,
+				attachmentUrls: urls,
+			};
 			report.pulled++;
 			if (action.kind === 'pull-create') report.created++;
 			return;
@@ -179,7 +200,10 @@ async function applyAction(
 		case 'push-update': {
 			const raw = await vault.read(action.path);
 			const { frontmatter, body } = splitFrontmatter(raw);
-			const updated = await remote.putMarkdown(action.doc.id, normalizeBody(body));
+			const updated = await remote.putMarkdown(
+				action.doc.id,
+				normalizeBody(delocalize(body, state.docs[action.doc.id])),
+			);
 			// Record awork's own post-write timestamp, otherwise the next pass
 			// would read our own push back as a remote change.
 			await vault.write(action.path, joinFrontmatter(metaFor(frontmatter, updated, frontmatterMode), body));
@@ -227,7 +251,10 @@ async function applyAction(
 					conflictPath(action.path, 'awork', stamp, mapping),
 					conflictBanner(action.doc, 'awork', stamp) + remoteMarkdown,
 				);
-				const updated = await remote.putMarkdown(action.doc.id, normalizeBody(localBody));
+				const updated = await remote.putMarkdown(
+					action.doc.id,
+					normalizeBody(delocalize(localBody, state.docs[action.doc.id])),
+				);
 				const { frontmatter } = splitFrontmatter(localRaw);
 				await vault.write(action.path, joinFrontmatter(metaFor(frontmatter, updated, frontmatterMode), localBody));
 				state.docs[action.doc.id] = await recordFor(updated, action.path, localBody, now());
@@ -260,6 +287,53 @@ async function applyAction(
 			return;
 		}
 	}
+}
+
+/**
+ * Brings a document's images into the vault and rewrites the embeds to point at
+ * them. A file that will not download keeps its original awork reference: a
+ * broken remote link beats a broken local one, and the next sync retries.
+ */
+async function localize(
+	markdown: string,
+	notePath: string,
+	context: ApplyContext,
+	report: SyncReport,
+): Promise<{ markdown: string; attachments: AttachmentMap; urls: Record<string, string> }> {
+	const images = findAworkImages(markdown);
+	if (images.length === 0 || context.attachmentFolder === '') {
+		return { markdown, attachments: {}, urls: {} };
+	}
+
+	const attachments: AttachmentMap = {};
+	const urls: Record<string, string> = {};
+
+	for (const image of images) {
+		if (attachments[image.fileId]) continue;
+		try {
+			const file = await context.remote.downloadFile(image.fileId);
+			const name = attachmentName(image.fileId, file.contentType, file.contentDisposition);
+			const path = `${context.attachmentFolder}/${name}`;
+			await context.vault.writeBinary(path, file.bytes);
+			attachments[image.fileId] = path;
+			urls[image.fileId] = image.url;
+			report.attachments++;
+		} catch (error) {
+			report.errors.push({
+				action: 'download-image',
+				target: `${notePath} (${image.fileId})`,
+				message: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+
+	return { markdown: localizeImages(markdown, attachments), attachments, urls };
+}
+
+/** Restores awork's file URLs before the body goes back over the wire. */
+function delocalize(body: string, record: DocRecord | undefined): string {
+	if (!record?.attachments || !record.attachmentUrls) return body;
+	return restoreImages(body, originalsByName(record.attachments, record.attachmentUrls));
 }
 
 async function writeNote(

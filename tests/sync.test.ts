@@ -32,6 +32,8 @@ describe('two-way sync', () => {
 			selection: { spaceIds: [SPACE_ID], includePrivate: true, includeShared: true },
 			deletionPolicy,
 			frontmatter,
+			tables: 'header',
+			attachmentFolder: 'awork/_attachments',
 			loadState: () => state,
 			saveState: async (next) => {
 				state = next;
@@ -287,6 +289,8 @@ describe('awork properties in notes', () => {
 			selection: { spaceIds: [SPACE_ID], includePrivate: true, includeShared: true },
 			deletionPolicy: 'ignore',
 			frontmatter,
+			tables: 'header',
+			attachmentFolder: 'awork/_attachments',
 			loadState: () => state,
 			saveState: async (next) => {
 				state = next;
@@ -376,6 +380,8 @@ describe('scan caching', () => {
 				selection: { spaceIds: [SPACE_ID], includePrivate: true, includeShared: true },
 				deletionPolicy: 'ignore',
 				frontmatter: 'minimal',
+			tables: 'header',
+			attachmentFolder: 'awork/_attachments',
 				loadState: () => state,
 				saveState: async (next) => {
 					state = next;
@@ -424,6 +430,8 @@ describe('documents containing documents', () => {
 			selection: { spaceIds: [SPACE_ID], includePrivate: true, includeShared: true },
 			deletionPolicy: 'ignore',
 			frontmatter: 'minimal',
+			tables: 'header',
+			attachmentFolder: 'awork/_attachments',
 			loadState: () => state,
 			saveState: async (next) => {
 				state = next;

@@ -26,6 +26,7 @@ class MemVault implements LocalVault {
 	async read(p: string) { return this.files.get(p) ?? ''; }
 	async readCached(p: string) { return this.read(p); }
 	async write(p: string, c: string) { this.files.set(p, c); }
+	async writeBinary(p: string, b: ArrayBuffer) { this.files.set(p, `<${b.byteLength} bytes>`); }
 	async rename(a: string, b: string) { this.files.set(b, this.files.get(a) ?? ''); this.files.delete(a); }
 	async trash(p: string) { this.files.delete(p); }
 	async exists(p: string) { return this.files.has(p); }
@@ -59,11 +60,14 @@ const report = await runSync({
 	selection: { spaceIds: [], includePrivate: true, includeShared: true },
 	deletionPolicy: 'ignore',
 	frontmatter: 'minimal',
+	tables: 'header',
+	attachmentFolder: process.env.SYNC_ATTACHMENTS ?? '',
 	concurrency,
 	loadState: () => state,
 	saveState: async (s) => { state = s; },
 });
 
+console.log('attachments downloaded:', report.attachments);
 console.log('HTTP responses:', Object.fromEntries([...counter.statuses].sort()));
 console.log('REPORT:', JSON.stringify(report, null, 2));
 console.log(`\n${vault.files.size} notes would be written:`);

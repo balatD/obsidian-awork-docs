@@ -227,6 +227,8 @@ export default class AworkSyncPlugin extends Plugin {
 				selection: selectionFrom(this.settings),
 				deletionPolicy: this.settings.deletionPolicy,
 				frontmatter: this.settings.frontmatter,
+				tables: this.settings.tables,
+				attachmentFolder: this.settings.attachmentFolder,
 				concurrency: this.settings.concurrency,
 				loadState: () => this.settings.state,
 				saveState: async (state) => {

@@ -15,6 +15,8 @@ export interface HttpResponse {
 	status: number;
 	headers: Record<string, string>;
 	text: string;
+	/** Present for responses that are not text — image downloads, mainly. */
+	bytes?: ArrayBuffer;
 }
 
 export interface HttpTransport {
