@@ -1,7 +1,7 @@
 import { Notice, Plugin, type ObsidianProtocolData } from 'obsidian';
 import { AworkClient } from './api/awork-client';
 import { ThrottledTransport } from './api/http';
-import { OAuthClient, REDIRECT_PATH } from './auth/oauth-client';
+import { OAuthClient, REDIRECT_PATH, REDIRECT_URI } from './auth/oauth-client';
 import { createPkcePair, randomState } from './auth/pkce';
 import { NotConnectedError, TokenStore, type StoredAuth } from './auth/token-store';
 import { migrateState } from './core/state';
@@ -16,6 +16,7 @@ import {
 import type { RemoteDoc } from './core/ports';
 import { ObsidianTransport } from './obsidian/request-transport';
 import { ObsidianVault } from './obsidian/vault-adapter';
+import { Logger } from './obsidian/logger';
 import {
 	AworkSyncSettingTab,
 	DEFAULT_SETTINGS,
@@ -44,6 +45,7 @@ export default class AworkSyncPlugin extends Plugin {
 	private statusBar: HTMLElement | null = null;
 	private intervalId: number | null = null;
 	private lastReport: SyncReport | null = null;
+	private readonly log = new Logger(() => this.settings?.debugLogging ?? false);
 
 	override async onload(): Promise<void> {
 		await this.loadSettings();
@@ -89,7 +91,7 @@ export default class AworkSyncPlugin extends Plugin {
 			callback: () => this.showLastReport(),
 		});
 
-		console.info('[awork-sync] loaded', {
+		this.log.info('loaded', {
 			connected: this.tokens.isConnected,
 			intervalMinutes: this.settings.intervalMinutes,
 			syncOnStartup: this.settings.syncOnStartup,
@@ -140,10 +142,15 @@ export default class AworkSyncPlugin extends Plugin {
 
 	async beginAuthorization(): Promise<void> {
 		try {
-			// The registration is per installation and survives disconnects.
-			const clientId = this.settings.auth.clientId ?? (await this.oauth.registerClient(CLIENT_NAME));
-			if (clientId !== this.settings.auth.clientId) {
-				this.settings.auth = { ...this.settings.auth, clientId };
+			// The registration is per installation and survives disconnects, but
+			// only while it still matches the callback it was registered for.
+			const reusable =
+				this.settings.auth.clientId !== null && this.settings.auth.redirectUri === REDIRECT_URI;
+			const clientId = reusable
+				? (this.settings.auth.clientId as string)
+				: await this.oauth.registerClient(CLIENT_NAME);
+			if (!reusable) {
+				this.settings.auth = { ...this.settings.auth, clientId, redirectUri: REDIRECT_URI };
 				await this.saveSettings();
 			}
 
@@ -196,12 +203,12 @@ export default class AworkSyncPlugin extends Plugin {
 
 	async syncNow(silent = false): Promise<void> {
 		if (this.syncing) {
-			console.info('[awork-sync] skipped: a sync is already running');
+			this.log.info('skipped: a sync is already running');
 			if (!silent) new Notice('awork sync is already running.');
 			return;
 		}
 		if (!this.tokens.isConnected) {
-			console.warn('[awork-sync] skipped: not connected', {
+			this.log.warn('skipped: not connected', {
 				hasClientId: this.settings.auth.clientId !== null,
 				hasTokens: this.settings.auth.tokens !== null,
 			});
@@ -209,7 +216,7 @@ export default class AworkSyncPlugin extends Plugin {
 			return;
 		}
 
-		console.info('[awork-sync] starting sync', {
+		this.log.info('starting sync', {
 			trigger: silent ? 'automatic' : 'manual',
 			spaces: this.settings.spaceIds.length,
 			includePrivate: this.settings.includePrivate,
@@ -239,7 +246,7 @@ export default class AworkSyncPlugin extends Plugin {
 			});
 			this.lastReport = report;
 			this.updateStatusBar('idle');
-			console.info('[awork-sync] finished', report);
+			this.log.info('finished', report);
 
 			if (report.errors.length > 0) {
 				new Notice(`awork sync: ${describeReport(report)}. Run "Show last sync report" for details.`, 10_000);
@@ -248,7 +255,7 @@ export default class AworkSyncPlugin extends Plugin {
 			}
 		} catch (error) {
 			this.updateStatusBar('error');
-			console.error('[awork-sync] sync failed', error);
+			this.log.error('sync failed', error);
 			const message =
 				error instanceof NotConnectedError
 					? error.message

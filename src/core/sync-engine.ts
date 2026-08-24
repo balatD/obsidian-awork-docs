@@ -2,7 +2,10 @@ import { conflictPath, nameFromPath, type MappingOptions } from './mapping';
 import { applyManagedKeys, hashBody, joinFrontmatter, normalizeBody, splitFrontmatter } from './markdown';
 import {
 	attachmentName,
+	aworkFileUrl,
 	findAworkImages,
+	findLocalEmbeds,
+	imageMimeType,
 	localizeImages,
 	originalsByName,
 	restoreImages,
@@ -64,6 +67,7 @@ export interface SyncReport {
 	conflicts: number;
 	unchanged: number;
 	attachments: number;
+	uploads: number;
 	errors: Array<{ action: string; target: string; message: string }>;
 }
 
@@ -78,6 +82,7 @@ export async function applyPlan(plan: SyncPlan, context: ApplyContext): Promise<
 		conflicts: 0,
 		unchanged: plan.unchanged,
 		attachments: 0,
+		uploads: 0,
 		errors: [],
 	};
 
@@ -156,9 +161,23 @@ async function applyAction(
 		case 'pull-update': {
 			const raw = await remote.getMarkdown(action.doc.id);
 			const withTables = convertSimpleHtmlTables(raw, context.tables);
-			const { markdown, attachments, urls } = await localize(withTables, action.path, context, report);
+						const { markdown, attachments, urls } = await localize(
+				withTables,
+				action.path,
+				action.doc.id,
+				context,
+				report,
+			);
 
-			await writeNote(vault, action.path, action.doc, markdown, frontmatterMode);
+			await writeNote(vault, action.path, action.doc, markdown, frontmatterMode, {
+				// What the last sync left in the file. If the note no longer holds
+				// that, someone edited it after the scan decided the remote won —
+				// keep their version before it is overwritten.
+				guardHash: state.docs[action.doc.id]?.bodyHash,
+				mapping,
+				stamp: now().toISOString(),
+				report,
+			});
 			state.docs[action.doc.id] = {
 				...(await recordFor(action.doc, action.path, markdown, now())),
 				attachments,
@@ -189,9 +208,26 @@ async function applyAction(
 				spaceId: action.spaceId,
 				parentId: action.parentId,
 			});
-			// Stamp the new id back so the note is tracked even if state is lost.
-			await vault.write(action.path, joinFrontmatter(metaFor(frontmatter, created, frontmatterMode), body));
 			state.docs[created.id] = await recordFor(created, action.path, body, now());
+
+			// A file can only attach to a document that exists, so images go up
+			// after the create and the body is sent again carrying their real URLs.
+			const outgoingNew = await delocalize(body, created.id, action.path, state, context, report);
+			const stamped =
+				outgoingNew === body
+					? created
+					: await remote.putMarkdown(created.id, normalizeBody(outgoingNew));
+
+			// Stamp the new id back so the note is tracked even if state is lost.
+			await vault.write(
+				action.path,
+				joinFrontmatter(metaFor(frontmatter, stamped, frontmatterMode), body),
+				raw,
+			);
+			state.docs[created.id] = withAttachments(
+				await recordFor(stamped, action.path, body, now()),
+				state.docs[created.id],
+			);
 			report.pushed++;
 			report.created++;
 			return;
@@ -200,14 +236,15 @@ async function applyAction(
 		case 'push-update': {
 			const raw = await vault.read(action.path);
 			const { frontmatter, body } = splitFrontmatter(raw);
-			const updated = await remote.putMarkdown(
-				action.doc.id,
-				normalizeBody(delocalize(body, state.docs[action.doc.id])),
-			);
+			const outgoing = await delocalize(body, action.doc.id, action.path, state, context, report);
+			const updated = await remote.putMarkdown(action.doc.id, normalizeBody(outgoing));
 			// Record awork's own post-write timestamp, otherwise the next pass
 			// would read our own push back as a remote change.
 			await vault.write(action.path, joinFrontmatter(metaFor(frontmatter, updated, frontmatterMode), body));
-			state.docs[action.doc.id] = await recordFor(updated, action.path, body, now());
+			state.docs[action.doc.id] = withAttachments(
+				await recordFor(updated, action.path, body, now()),
+				state.docs[action.doc.id],
+			);
 			report.pushed++;
 			return;
 		}
@@ -251,13 +288,21 @@ async function applyAction(
 					conflictPath(action.path, 'awork', stamp, mapping),
 					conflictBanner(action.doc, 'awork', stamp) + remoteMarkdown,
 				);
-				const updated = await remote.putMarkdown(
+				const outgoingBody = await delocalize(
+					localBody,
 					action.doc.id,
-					normalizeBody(delocalize(localBody, state.docs[action.doc.id])),
+					action.path,
+					state,
+					context,
+					report,
 				);
+				const updated = await remote.putMarkdown(action.doc.id, normalizeBody(outgoingBody));
 				const { frontmatter } = splitFrontmatter(localRaw);
 				await vault.write(action.path, joinFrontmatter(metaFor(frontmatter, updated, frontmatterMode), localBody));
-				state.docs[action.doc.id] = await recordFor(updated, action.path, localBody, now());
+				state.docs[action.doc.id] = withAttachments(
+					await recordFor(updated, action.path, localBody, now()),
+					state.docs[action.doc.id],
+				);
 			}
 			report.conflicts++;
 			return;
@@ -297,6 +342,7 @@ async function applyAction(
 async function localize(
 	markdown: string,
 	notePath: string,
+	docId: string,
 	context: ApplyContext,
 	report: SyncReport,
 ): Promise<{ markdown: string; attachments: AttachmentMap; urls: Record<string, string> }> {
@@ -308,8 +354,18 @@ async function localize(
 	const attachments: AttachmentMap = {};
 	const urls: Record<string, string> = {};
 
+	const known = context.state.docs[docId]?.attachments ?? {};
+
 	for (const image of images) {
 		if (attachments[image.fileId]) continue;
+		// Already in the vault — usually a file this plugin uploaded a moment ago.
+		// Re-downloading it would duplicate the attachment under a second name.
+		const existing = known[image.fileId];
+		if (existing !== undefined && (await context.vault.exists(existing))) {
+			attachments[image.fileId] = existing;
+			urls[image.fileId] = image.url;
+			continue;
+		}
 		try {
 			const file = await context.remote.downloadFile(image.fileId);
 			const name = attachmentName(image.fileId, file.contentType, file.contentDisposition);
@@ -330,10 +386,69 @@ async function localize(
 	return { markdown: localizeImages(markdown, attachments), attachments, urls };
 }
 
-/** Restores awork's file URLs before the body goes back over the wire. */
-function delocalize(body: string, record: DocRecord | undefined): string {
-	if (!record?.attachments || !record.attachmentUrls) return body;
-	return restoreImages(body, originalsByName(record.attachments, record.attachmentUrls));
+/**
+ * Prepares a body for awork: known attachments get their original file URL back,
+ * and images added in Obsidian are uploaded so awork has a real file to point
+ * at rather than a wikilink it cannot resolve.
+ */
+async function delocalize(
+	body: string,
+	docId: string,
+	notePath: string,
+	state: SyncState,
+	context: ApplyContext,
+	report: SyncReport,
+): Promise<string> {
+	const record = state.docs[docId];
+	const restored =
+		record?.attachments && record.attachmentUrls
+			? restoreImages(body, originalsByName(record.attachments, record.attachmentUrls))
+			: body;
+
+	const pending = findLocalEmbeds(restored);
+	if (pending.length === 0) return restored;
+
+	const attachments: AttachmentMap = { ...(record?.attachments ?? {}) };
+	const urls: Record<string, string> = { ...(record?.attachmentUrls ?? {}) };
+	let result = restored;
+
+	for (const embed of pending) {
+		const mimeType = imageMimeType(embed.name);
+		// Not an image: leave it be rather than turning a PDF into a broken picture.
+		if (mimeType === null) continue;
+		try {
+			const path = await context.vault.resolveEmbed(embed.name, notePath);
+			if (path === null) continue;
+			const bytes = await context.vault.readBinary(path);
+			const fileId = await context.remote.uploadFile(docId, {
+				fileName: embed.name,
+				mimeType,
+				bytes,
+			});
+			const url = aworkFileUrl(fileId);
+			attachments[fileId] = path;
+			urls[fileId] = url;
+			result = result.split(embed.embed).join(`![${embed.alt}](<${url}>)`);
+			report.uploads++;
+		} catch (error) {
+			report.errors.push({
+				action: 'upload-image',
+				target: `${notePath} (${embed.name})`,
+				message: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+
+	if (record) state.docs[docId] = { ...record, attachments, attachmentUrls: urls };
+	return result;
+}
+
+interface WriteGuard {
+	/** Body hash the last sync recorded for this note. */
+	guardHash: string | undefined;
+	mapping: MappingOptions;
+	stamp: string;
+	report: SyncReport;
 }
 
 async function writeNote(
@@ -342,11 +457,37 @@ async function writeNote(
 	doc: RemoteDoc,
 	markdown: string,
 	mode: FrontmatterMode,
+	guard?: WriteGuard,
 ): Promise<void> {
+	const raw = (await vault.exists(path)) ? await vault.read(path) : null;
+	const split = raw === null ? { frontmatter: null, body: '' } : splitFrontmatter(raw);
+
+	if (guard?.guardHash !== undefined && raw !== null) {
+		const current = await hashBody(split.body);
+		if (current !== guard.guardHash) {
+			// Edited between the scan and now: this is a conflict the plan could
+			// not have seen, so keep the local side rather than discarding it.
+			await vault.write(
+				conflictPath(path, 'local', guard.stamp, guard.mapping),
+				conflictBanner(doc, 'local', guard.stamp) + split.body,
+			);
+			guard.report.conflicts++;
+		}
+	}
+
 	// Preserve any frontmatter the user or other plugins put on the note; only
 	// the awork-owned keys are rewritten.
-	const existing = (await vault.exists(path)) ? splitFrontmatter(await vault.read(path)).frontmatter : null;
-	await vault.write(path, joinFrontmatter(metaFor(existing, doc, mode), markdown));
+	const content = joinFrontmatter(metaFor(split.frontmatter, doc, mode), markdown);
+	// `raw` guards the write itself: if the file moved on since it was read a
+	// moment ago, the write is refused rather than clobbering the newer text.
+	const written = await vault.write(path, content, raw ?? undefined);
+	if (!written) {
+		guard?.report.errors.push({
+			action: 'write-note',
+			target: path,
+			message: 'The note changed while it was being written; skipped and will sync next pass.',
+		});
+	}
 }
 
 export function metaFor(frontmatter: string | null, doc: RemoteDoc, mode: FrontmatterMode): string {
@@ -394,6 +535,16 @@ async function recordFor(doc: RemoteDoc, path: string, body: string, at: Date): 
 		bodyHash: await hashBody(body),
 		lastSyncedAt: at.toISOString(),
 	};
+}
+
+/**
+ * Attachment bookkeeping survives a content write. `recordFor` builds a fresh
+ * record from the document alone, so without this an upload would be forgotten
+ * and the same image re-uploaded on the next edit.
+ */
+function withAttachments(base: DocRecord, previous: DocRecord | undefined): DocRecord {
+	if (!previous?.attachments && !previous?.attachmentUrls) return base;
+	return { ...base, attachments: previous.attachments, attachmentUrls: previous.attachmentUrls };
 }
 
 function targetOf(action: SyncAction): string {

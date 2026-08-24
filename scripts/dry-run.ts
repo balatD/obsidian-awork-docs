@@ -24,8 +24,10 @@ class MemVault implements LocalVault {
 	files = new Map<string, string>();
 	async list(): Promise<LocalFile[]> { return []; }
 	async read(p: string) { return this.files.get(p) ?? ''; }
+	async readBinary() { return new ArrayBuffer(0); }
+	async resolveEmbed() { return null; }
 	async readCached(p: string) { return this.read(p); }
-	async write(p: string, c: string) { this.files.set(p, c); }
+	async write(p: string, c: string) { this.files.set(p, c); return true; }
 	async writeBinary(p: string, b: ArrayBuffer) { this.files.set(p, `<${b.byteLength} bytes>`); }
 	async rename(a: string, b: string) { this.files.set(b, this.files.get(a) ?? ''); this.files.delete(a); }
 	async trash(p: string) { this.files.delete(p); }

@@ -8,6 +8,7 @@ import type {
 	RemoteDocs,
 	RemoteSpace,
 	RenameRemoteDoc,
+	UploadFile,
 } from '../src/core/ports';
 
 /** A controllable clock so tests can order remote and local edits precisely. */
@@ -36,6 +37,7 @@ export class FakeRemote implements RemoteDocs {
 	/** fileId -> what `downloadFile` should hand back. */
 	readonly files = new Map<string, DownloadedFile>();
 	readonly downloads: string[] = [];
+	readonly uploads: Array<{ documentId: string; fileName: string; bytes: number }> = [];
 	private nextId = 1;
 
 	constructor(private readonly clock: TestClock) {}
@@ -129,6 +131,17 @@ export class FakeRemote implements RemoteDocs {
 		this.trashed.push(id);
 	}
 
+	async uploadFile(documentId: string, file: UploadFile): Promise<string> {
+		const fileId = `file-${this.nextId++}`;
+		this.uploads.push({ documentId, fileName: file.fileName, bytes: file.bytes.byteLength });
+		this.files.set(fileId, {
+			bytes: file.bytes,
+			contentType: file.mimeType,
+			contentDisposition: `attachment; filename="${file.fileName}"`,
+		});
+		return fileId;
+	}
+
 	async downloadFile(fileId: string): Promise<DownloadedFile> {
 		const file = this.files.get(fileId);
 		if (!file) throw new Error(`No such file: ${fileId}`);
@@ -173,13 +186,30 @@ export class InMemoryVault implements LocalVault {
 		return this.read(path);
 	}
 
-	async write(path: string, content: string): Promise<void> {
+	async write(path: string, content: string, expected?: string): Promise<boolean> {
+		const current = this.files.get(path);
+		if (expected !== undefined && current !== undefined && current.content !== expected) return false;
 		this.files.set(path, { content, mtime: this.clock.value });
+		return true;
 	}
 
 	async writeBinary(path: string, bytes: ArrayBuffer): Promise<void> {
 		this.binary.set(path, bytes);
 		this.files.set(path, { content: `<${bytes.byteLength} bytes>`, mtime: this.clock.value });
+	}
+
+	async readBinary(path: string): Promise<ArrayBuffer> {
+		const bytes = this.binary.get(path);
+		if (!bytes) throw new Error(`No such attachment: ${path}`);
+		return bytes;
+	}
+
+	/** Resolves by filename anywhere in the vault, like Obsidian's shortest path. */
+	async resolveEmbed(name: string): Promise<string | null> {
+		for (const path of this.binary.keys()) {
+			if (path.slice(path.lastIndexOf('/') + 1) === name) return path;
+		}
+		return null;
 	}
 
 	async rename(from: string, to: string): Promise<void> {

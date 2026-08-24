@@ -53,6 +53,14 @@ export interface RemoteDocs {
 	trash(id: string): Promise<void>;
 	/** Fetches an embedded file. The endpoint requires the bearer token. */
 	downloadFile(fileId: string): Promise<DownloadedFile>;
+	/** Attaches a file to a document and returns the new file's id. */
+	uploadFile(documentId: string, file: UploadFile): Promise<string>;
+}
+
+export interface UploadFile {
+	fileName: string;
+	mimeType: string;
+	bytes: ArrayBuffer;
 }
 
 export interface DownloadedFile {
@@ -73,9 +81,23 @@ export interface LocalVault {
 	read(path: string): Promise<string>;
 	/** Same content as `read`, but allowed to come from a cache. Used by the scan. */
 	readCached(path: string): Promise<string>;
-	write(path: string, content: string): Promise<void>;
+	/**
+	 * Replaces the note's content.
+	 *
+	 * When `expected` is given, the write only happens if the file still holds
+	 * exactly that — otherwise it was edited since the sync read it, and
+	 * `false` is returned so the caller can treat it as a conflict rather than
+	 * silently discarding those edits.
+	 */
+	write(path: string, content: string, expected?: string): Promise<boolean>;
 	writeBinary(path: string, bytes: ArrayBuffer): Promise<void>;
 	rename(from: string, to: string): Promise<void>;
+	readBinary(path: string): Promise<ArrayBuffer>;
+	/**
+	 * Resolves an Obsidian embed target (`![[name]]`) to a vault path, the same
+	 * way Obsidian itself would from the note doing the embedding.
+	 */
+	resolveEmbed(name: string, fromNotePath: string): Promise<string | null>;
 	/** Moves to the system/Obsidian trash rather than unlinking. */
 	trash(path: string): Promise<void>;
 	exists(path: string): Promise<boolean>;

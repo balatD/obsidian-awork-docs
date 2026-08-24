@@ -29,6 +29,8 @@ export interface AworkSyncSettings {
 	/** Minutes between automatic syncs; 0 disables the timer. */
 	intervalMinutes: number;
 	syncOnStartup: boolean;
+	/** Writes sync diagnostics to the developer console. */
+	debugLogging: boolean;
 	auth: StoredAuth;
 	state: SyncState;
 }
@@ -48,6 +50,7 @@ export const DEFAULT_SETTINGS: AworkSyncSettings = {
 	concurrency: DEFAULT_CONCURRENCY,
 	intervalMinutes: 5,
 	syncOnStartup: false,
+	debugLogging: false,
 	auth: emptyAuth,
 	state: emptyState(),
 };
@@ -126,7 +129,7 @@ export class AworkSyncSettingTab extends PluginSettingTab {
 			cls: 'setting-item-description',
 			text:
 				'Access and refresh tokens are stored in this plugin\'s data.json inside the vault, in plain text. ' +
-				'If you sync the vault elsewhere, exclude .obsidian/plugins/awork-sync/data.json.',
+				'If you sync the vault elsewhere, exclude .obsidian/plugins/awork-docs/data.json.',
 		});
 	}
 
@@ -339,6 +342,16 @@ export class AworkSyncSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 						this.plugin.rebuildClient();
 					}),
+			);
+
+		new Setting(containerEl)
+			.setName('Log to the developer console')
+			.setDesc('Records what each sync decided. Only useful when something looks wrong.')
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.debugLogging).onChange(async (value) => {
+					this.plugin.settings.debugLogging = value;
+					await this.plugin.saveSettings();
+				}),
 			);
 
 		new Setting(containerEl)

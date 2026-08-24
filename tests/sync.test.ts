@@ -503,3 +503,71 @@ describe('documents containing documents', () => {
 		expect(await vault.exists('awork/Engineering/Kunden.md')).toBe(false);
 	});
 });
+
+describe('edits that land mid-sync', () => {
+	const path = 'awork/Engineering/Runbook.md';
+	let clock: TestClock;
+	let remote: FakeRemote;
+	let vault: InMemoryVault;
+	let state: SyncState;
+
+	beforeEach(() => {
+		clock = new TestClock();
+		remote = new FakeRemote(clock);
+		vault = new InMemoryVault(clock);
+		state = emptyState();
+		remote.addSpace(SPACE_ID, 'Engineering');
+	});
+
+	const sync = async () =>
+		runSync({
+			remote,
+			vault,
+			mapping,
+			selection: { spaceIds: [SPACE_ID], includePrivate: true, includeShared: true },
+			deletionPolicy: 'ignore',
+			frontmatter: 'minimal',
+			tables: 'header',
+			attachmentFolder: 'awork/_attachments',
+			loadState: () => state,
+			saveState: async (next) => {
+				state = next;
+			},
+			now: () => clock.now(),
+		});
+
+	it('keeps a local edit that arrives after the scan decided the remote won', async () => {
+		remote.seed({ id: 'doc-a', name: 'Runbook', spaceId: SPACE_ID }, 'original');
+		await sync();
+
+		// Remote moves on, so the plan will be a plain pull-update...
+		clock.advance(60_000);
+		remote.editRemotely('doc-a', 'remote edit');
+
+		// ...but the note is edited between the scan and the write.
+		const original = vault.readCached.bind(vault);
+		vault.readCached = async (p: string) => {
+			const seen = await original(p);
+			if (p === path) {
+				const { frontmatter } = splitFrontmatter(seen);
+				vault.edit(path, `---\n${frontmatter}\n---\nsnuck in`);
+			}
+			return seen;
+		};
+
+		const report = await sync();
+
+		expect(report.conflicts).toBe(1);
+		expect(await vault.read(path)).toContain('remote edit');
+		const archived = [...vault.files.keys()].filter((p) => p.startsWith('awork/_conflicts/'));
+		expect(archived).toHaveLength(1);
+		expect(await vault.read(archived[0]!)).toContain('snuck in');
+	});
+
+	it('refuses a write whose target moved on, instead of clobbering it', async () => {
+		const written = await vault.write('note.md', 'first');
+		expect(written).toBe(true);
+		expect(await vault.write('note.md', 'second', 'not what is there')).toBe(false);
+		expect(await vault.read('note.md')).toBe('first');
+	});
+});
