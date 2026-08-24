@@ -10,7 +10,7 @@ import { HttpError, type HttpTransport } from '../api/http';
  * workspace admin or paste a client id.
  */
 
-export const REDIRECT_PATH = 'awork-sync-callback';
+export const REDIRECT_PATH = 'awork-docs-callback';
 export const REDIRECT_URI = `obsidian://${REDIRECT_PATH}`;
 export const SCOPE = 'full_access offline_access';
 

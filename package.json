@@ -1,5 +1,5 @@
 {
-	"name": "obsidian-awork-sync",
+	"name": "obsidian-awork-docs",
 	"version": "0.1.0",
 	"description": "Two-way sync between awork Docs and an Obsidian vault",
 	"main": "main.js",
@@ -36,5 +36,6 @@
 	},
 	"bugs": {
 		"url": "https://github.com/balatD/obsidian-awork-docs/issues"
-	}
+	},
+	"author": "Dragan Balatinac"
 }

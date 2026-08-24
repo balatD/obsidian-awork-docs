@@ -11,12 +11,23 @@ import type { OAuthClient, TokenSet } from './oauth-client';
 
 export interface StoredAuth {
 	clientId: string | null;
+	/**
+	 * The redirect URI `clientId` was registered against. A client is only good
+	 * for the exact URI it was registered with, so if the plugin's callback ever
+	 * changes the old registration has to be replaced rather than reused.
+	 */
+	redirectUri?: string | null;
 	tokens: TokenSet | null;
 	/** Display only — shown in settings so you know which account is connected. */
 	accountLabel: string | null;
 }
 
-export const emptyAuth: StoredAuth = { clientId: null, tokens: null, accountLabel: null };
+export const emptyAuth: StoredAuth = {
+	clientId: null,
+	redirectUri: null,
+	tokens: null,
+	accountLabel: null,
+};
 
 export class NotConnectedError extends Error {
 	constructor() {

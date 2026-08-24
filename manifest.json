@@ -1,9 +1,10 @@
 {
-  "id": "awork-sync",
-  "name": "awork Sync",
-  "version": "0.1.0",
-  "minAppVersion": "1.5.0",
-  "description": "Two-way sync between your awork Docs and this vault.",
-  "author": "CP/COMPARTNER",
-  "isDesktopOnly": true
+	"id": "awork-docs",
+	"name": "awork Docs Sync",
+	"version": "0.1.0",
+	"minAppVersion": "1.5.7",
+	"description": "Two-way sync between your awork Docs and this vault.",
+	"author": "Dragan Balatinac",
+	"authorUrl": "https://github.com/balatD",
+	"isDesktopOnly": true
 }

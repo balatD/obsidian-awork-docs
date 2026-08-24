@@ -7,7 +7,7 @@ const production = process.argv[2] === 'production';
 
 // Dev builds copy the bundle straight into a test vault's plugin folder so
 // Obsidian's "Reload app without saving" picks up changes immediately.
-// Put the absolute path to <vault>/.obsidian/plugins/awork-sync in .vault-path.
+// Put the absolute path to <vault>/.obsidian/plugins/awork-docs in .vault-path.
 const vaultPath = fs.existsSync('.vault-path')
   ? fs.readFileSync('.vault-path', 'utf8').trim()
   : null;
