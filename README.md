@@ -7,6 +7,9 @@ awork's API serves and accepts document content as **Markdown natively**
 `contentFormat=markdown`), so notes cross the wire as-is — no HTML conversion
 layer, no lossy round-trip through a rich-text model on this side.
 
+> **This plugin sends your notes to a third-party service.** See
+> [What leaves your vault](#what-leaves-your-vault) before installing.
+
 ## What it syncs
 
 | Scope | Vault folder | Direction |
@@ -103,8 +106,10 @@ push**, so awork keeps its own file record and editing a note's text never
 disturbs its images. A file that fails to download keeps its awork link rather
 than becoming a broken local one, and the next sync retries.
 
-Images added *in Obsidian* are not uploaded to awork yet — they stay as
-wikilinks awork cannot resolve.
+Images you add in Obsidian go the other way: on push they are uploaded as
+attachments on that awork document and the embed is replaced with awork's own
+file reference, so they render there too. Only images are uploaded — a `![[…]]`
+embed pointing at a PDF is left alone rather than becoming a broken picture.
 
 ## How it decides what changed
 
@@ -131,16 +136,45 @@ document and the timestamp, so you can merge by hand.
   *"When a synced note is deleted here"* to mirroring if you want the awork
   document moved to the workspace trash instead.
 
+## What leaves your vault
+
+The plugin talks to **`api.awork.com`** and to nothing else. Over that connection
+it sends and receives:
+
+- **the full text and title of every synced document**, in both directions
+- the names of your document spaces, and your own name and email (once, to show
+  which account is connected)
+- **images**: awork's are downloaded into the vault; images you embed in a synced
+  note are uploaded to awork as attachments on that document
+
+Three side effects worth knowing about before you install:
+
+- **It registers an OAuth client on awork's servers.** On first connect the
+  plugin creates its own API client via awork's public registration endpoint.
+  That record lives in your awork workspace and is visible under
+  Settings → Integrations.
+- **Tokens are stored in plain text.** Obsidian gives plugins no secure storage,
+  so the access and refresh tokens sit in
+  `.obsidian/plugins/awork-docs/data.json` inside the vault. Exclude that file if
+  you sync or commit the vault elsewhere. The token carries awork's `full_access`
+  scope — the only meaningful one awork offers — so it can reach more than
+  documents.
+- **It creates, moves and trashes notes**, and can move awork documents to the
+  workspace trash if you switch the deletion policy to mirroring. Nothing is
+  deleted outright: notes go to Obsidian's trash and awork documents to awork's.
+
+No telemetry, no analytics, no other hosts.
+
 ## Connecting
 
 The plugin registers **its own OAuth client** with awork on first connect (RFC
 7591 dynamic client registration, which awork exposes unauthenticated) and then
-runs authorization-code + PKCE with an `obsidian://awork-sync-callback` redirect.
+runs authorization-code + PKCE with an `obsidian://awork-docs-callback` redirect.
 You do not need to be a workspace admin and there is nothing to paste.
 
 Tokens are stored in `data.json` inside the vault, **in plain text** — Obsidian
 gives plugins no secure storage. If the vault is synced or committed elsewhere,
-exclude `.obsidian/plugins/awork-sync/data.json`.
+exclude `.obsidian/plugins/awork-docs/data.json`.
 
 Refresh tokens are valid 30 days and rotate on use, so leaving Obsidian closed
 for longer than that means reconnecting.
@@ -158,7 +192,7 @@ For a live-reload loop, write the absolute path of a test vault's plugin folder
 into `.vault-path`:
 
 ```sh
-echo "/path/to/TestVault/.obsidian/plugins/awork-sync" > .vault-path
+echo "/path/to/TestVault/.obsidian/plugins/awork-docs" > .vault-path
 npm run dev
 ```
 
@@ -245,14 +279,21 @@ pass is three requests and no file reads at all.
 If a sync feels slow, `npm run -s dry-run` prints the response-status histogram
 alongside the plan, which distinguishes rate limiting from plain latency.
 
+## Not affiliated with awork
+
+This is an independent, unofficial plugin. It is not built, endorsed or
+supported by awork GmbH, and "awork" is their trademark, used here only to say
+what the plugin talks to.
+
 ## Known limitations
 
 - **No document webhooks in awork**, so changes are polled (default: every 5
   minutes, plus a manual command and ribbon icon).
 - **Obsidian-specific syntax** — `[[wikilinks]]`, `![[embeds]]`, callouts,
   Dataview queries — is pushed as literal text and will not render in awork.
-- **Images added in Obsidian are not uploaded to awork.** The other direction
-  works; see Tables and images above.
+- **Mobile is untested.** Nothing in the source needs Node, so it may well work,
+  but `isDesktopOnly` stays `true` until the `obsidian://` callback is actually
+  verified on a phone.
 - **The `full_access` scope is the only meaningful one awork offers**, so the
   token can reach more than documents.
 - Rate limits (50/s, 1000/min) are **workspace-wide and shared with every other

@@ -144,3 +144,113 @@ describe('images through a sync', () => {
 		expect(remote.docs.size).toBe(1);
 	});
 });
+
+describe('images added in Obsidian', () => {
+	const SPACE_ID = 'space-eng';
+	let clock: TestClock;
+	let remote: FakeRemote;
+	let vault: InMemoryVault;
+	let state: SyncState;
+
+	beforeEach(() => {
+		clock = new TestClock();
+		remote = new FakeRemote(clock);
+		vault = new InMemoryVault(clock);
+		state = emptyState();
+		remote.addSpace(SPACE_ID, 'Engineering');
+	});
+
+	const sync = async () =>
+		runSync({
+			remote,
+			vault,
+			mapping: defaultMappingOptions,
+			selection: { spaceIds: [SPACE_ID], includePrivate: true, includeShared: true },
+			deletionPolicy: 'ignore',
+			frontmatter: 'minimal',
+			tables: 'header',
+			attachmentFolder: 'awork/_attachments',
+			loadState: () => state,
+			saveState: async (next) => {
+				state = next;
+			},
+			now: () => clock.now(),
+		});
+
+	const path = 'awork/Engineering/Doc.md';
+	const png = () => new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer;
+
+	it('uploads a pasted image and sends awork a real file reference', async () => {
+		remote.seed({ id: 'doc-a', name: 'Doc', spaceId: SPACE_ID }, 'body');
+		await sync();
+
+		clock.advance(60_000);
+		await vault.writeBinary('awork/_attachments/pasted.png', png());
+		const { frontmatter } = splitFrontmatter(await vault.read(path));
+		vault.edit(path, `---\n${frontmatter}\n---\nSee this:\n\n![[pasted.png]]`);
+
+		const report = await sync();
+
+		expect(report.uploads).toBe(1);
+		expect(remote.uploads[0]).toMatchObject({ documentId: 'doc-a', fileName: 'pasted.png' });
+		const pushed = await remote.getMarkdown('doc-a');
+		expect(pushed).toMatch(/!\[\]\(<\/api\/v1\/files\/file-\d+\/download>\)/);
+		expect(pushed).not.toContain('![[');
+	});
+
+	it('does not upload the same image again on the next edit', async () => {
+		remote.seed({ id: 'doc-a', name: 'Doc', spaceId: SPACE_ID }, 'body');
+		await sync();
+		clock.advance(60_000);
+		await vault.writeBinary('awork/_attachments/pasted.png', png());
+		let { frontmatter } = splitFrontmatter(await vault.read(path));
+		vault.edit(path, `---\n${frontmatter}\n---\n![[pasted.png]]`);
+		await sync();
+
+		clock.advance(60_000);
+		({ frontmatter } = splitFrontmatter(await vault.read(path)));
+		vault.edit(path, `---\n${frontmatter}\n---\nMore text\n\n![[pasted.png]]`);
+		await sync();
+
+		expect(remote.uploads).toHaveLength(1);
+	});
+
+	it('uploads images on a note created in Obsidian', async () => {
+		await vault.writeBinary('awork/_attachments/shot.png', png());
+		vault.edit('awork/Engineering/Fresh.md', 'New note\n\n![[shot.png]]');
+
+		const report = await sync();
+
+		expect(report.uploads).toBe(1);
+		const created = [...remote.docs.values()].find((d) => d.name === 'Fresh');
+		expect(await remote.getMarkdown(created!.id)).toContain('/api/v1/files/');
+	});
+
+	it('leaves a non-image embed alone', async () => {
+		remote.seed({ id: 'doc-a', name: 'Doc', spaceId: SPACE_ID }, 'body');
+		await sync();
+		clock.advance(60_000);
+		await vault.writeBinary('awork/_attachments/spec.pdf', png());
+		const { frontmatter } = splitFrontmatter(await vault.read(path));
+		vault.edit(path, `---\n${frontmatter}\n---\n![[spec.pdf]]`);
+
+		const report = await sync();
+
+		expect(report.uploads).toBe(0);
+		expect(await remote.getMarkdown('doc-a')).toContain('![[spec.pdf]]');
+	});
+
+	it('reports an embed it cannot resolve instead of failing the sync', async () => {
+		remote.seed({ id: 'doc-a', name: 'Doc', spaceId: SPACE_ID }, 'body');
+		await sync();
+		clock.advance(60_000);
+		const { frontmatter } = splitFrontmatter(await vault.read(path));
+		vault.edit(path, `---\n${frontmatter}\n---\n![[missing.png]]`);
+
+		const report = await sync();
+
+		expect(report.uploads).toBe(0);
+		expect(report.errors).toHaveLength(0);
+		expect(await remote.getMarkdown('doc-a')).toContain('![[missing.png]]');
+	});
+});

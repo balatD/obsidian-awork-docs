@@ -6,12 +6,13 @@ import {
 	type UserModel,
 } from './types';
 import { HttpError, type HttpRequest, type HttpTransport } from './http';
-import { buildMultipart } from './multipart';
+import { buildMultipart, buildMultipartBinary } from './multipart';
 import { stripAworkExportHeader } from '../core/markdown';
 import type {
 	CreateRemoteDoc,
 	DocSelection,
 	DownloadedFile,
+	UploadFile,
 	RemoteDoc,
 	RemoteDocs,
 	RemoteSpace,
@@ -157,6 +158,21 @@ export class AworkClient implements RemoteDocs {
 			contentType: response.headers['content-type'],
 			contentDisposition: response.headers['content-disposition'],
 		};
+	}
+
+	async uploadFile(documentId: string, file: UploadFile): Promise<string> {
+		const multipart = buildMultipartBinary([
+			{ name: 'file', value: file.bytes, filename: file.fileName, contentType: file.mimeType },
+			{ name: 'name', value: file.fileName },
+		]);
+		const info = await this.json<{ id?: string }>({
+			method: 'POST',
+			url: `${this.baseUrl}/documents/${documentId}/files`,
+			headers: { 'Content-Type': multipart.contentType },
+			body: multipart.body,
+		});
+		if (!info.id) throw new Error(`awork returned no file id for ${file.fileName}`);
+		return info.id;
 	}
 
 	private async listScoped(url: string, scope: DocScope): Promise<RemoteDoc[]> {

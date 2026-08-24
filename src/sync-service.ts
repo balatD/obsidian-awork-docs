@@ -126,7 +126,8 @@ export function describeReport(report: SyncReport): string {
 	if (report.moved) parts.push(`${report.moved} moved`);
 	if (report.trashed) parts.push(`${report.trashed} trashed`);
 	if (report.conflicts) parts.push(`${report.conflicts} conflicts`);
-	if (report.attachments) parts.push(`${report.attachments} images`);
+	if (report.attachments) parts.push(`${report.attachments} images in`);
+	if (report.uploads) parts.push(`${report.uploads} images out`);
 	if (report.errors.length) parts.push(`${report.errors.length} failed`);
 	if (parts.length === 0) return `Up to date (${report.unchanged} documents)`;
 	return parts.join(', ');

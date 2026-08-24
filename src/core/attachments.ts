@@ -66,6 +66,46 @@ export function restoreImages(markdown: string, originals: Record<string, string
 	});
 }
 
+export interface LocalEmbed {
+	embed: string;
+	name: string;
+	alt: string;
+}
+
+/** Obsidian-style embeds in a note, in the order they appear. */
+export function findLocalEmbeds(markdown: string): LocalEmbed[] {
+	return [...markdown.matchAll(EMBED_PATTERN)].map((match) => ({
+		embed: match[0],
+		name: match[1] ?? '',
+		alt: match[2] ?? '',
+	}));
+}
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+	png: 'image/png',
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	gif: 'image/gif',
+	webp: 'image/webp',
+	svg: 'image/svg+xml',
+	avif: 'image/avif',
+	bmp: 'image/bmp',
+};
+
+/**
+ * Only images are uploaded. awork would happily store any file, but embedding a
+ * PDF as an image reference would render as a broken picture there.
+ */
+export function imageMimeType(filename: string): string | null {
+	const extension = filename.slice(filename.lastIndexOf('.') + 1).toLowerCase();
+	return MIME_BY_EXTENSION[extension] ?? null;
+}
+
+/** The reference awork uses for one of its own files. */
+export function aworkFileUrl(fileId: string): string {
+	return `/api/v1/files/${fileId}/download`;
+}
+
 /** Inverts an attachment map into filename → original awork URL. */
 export function originalsByName(
 	attachments: AttachmentMap,
