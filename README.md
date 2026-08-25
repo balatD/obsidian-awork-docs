@@ -1,4 +1,4 @@
-# awork Sync for Obsidian
+# awork Docs Sync
 
 Two-way sync between [awork](https://www.awork.com) Docs and an Obsidian vault.
 
@@ -9,6 +9,64 @@ layer, no lossy round-trip through a rich-text model on this side.
 
 > **This plugin sends your notes to a third-party service.** See
 > [What leaves your vault](#what-leaves-your-vault) before installing.
+
+## Installing
+
+You need **Obsidian 1.5.7 or newer** on desktop, and an awork account. There is
+nothing to register or configure first — the plugin sets up its own API access
+when you connect.
+
+Not in Obsidian's community plugin browser (yet), so pick one of these.
+
+### With BRAT (recommended)
+
+[BRAT](https://github.com/TfTHacker/obsidian42-brat) installs plugins straight
+from GitHub and keeps them updated afterwards.
+
+1. Install **BRAT** from Obsidian's community plugins browser and enable it.
+2. Run the command **BRAT: Add a beta plugin for testing**.
+3. Enter `balatD/obsidian-awork-docs` and confirm.
+4. Settings → Community plugins → enable **awork Docs Sync**.
+
+### By hand
+
+1. Download `main.js` and `manifest.json` from the
+   [latest release](https://github.com/balatD/obsidian-awork-docs/releases/latest).
+2. Put both in `<your vault>/.obsidian/plugins/awork-docs/`, creating the folder
+   if it does not exist.
+3. Restart Obsidian, or Settings → Community plugins → **Reload plugins**.
+4. Enable **awork Docs Sync**.
+
+Updating means repeating this with the newer files, which is the main reason to
+prefer BRAT.
+
+### From source
+
+```sh
+git clone https://github.com/balatD/obsidian-awork-docs
+cd obsidian-awork-docs
+npm install && npm run build
+mkdir -p "<your vault>/.obsidian/plugins/awork-docs"
+cp main.js manifest.json "<your vault>/.obsidian/plugins/awork-docs/"
+```
+
+See [Development](#development) for the watch-mode loop.
+
+### First run
+
+1. Settings → **awork Docs Sync** → **Connect to awork**. Your browser opens
+   awork's login and hands control back to Obsidian. If several vaults are open,
+   close the others first so the callback reaches the right window.
+2. Choose what to sync: your private docs, docs shared with you, and any
+   document spaces. **Nothing syncs until at least one is selected.**
+3. Press the sync icon in the left ribbon, or run **awork Docs Sync: Sync now**.
+
+Your documents appear under `awork/` and the status bar shows when the last sync
+finished. It then polls every 5 minutes by default, since awork has no webhooks
+for documents.
+
+Try it on a scratch vault first if you would rather watch it work before
+pointing it at your real notes — it creates, moves and trashes files.
 
 ## What it syncs
 
